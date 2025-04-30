@@ -1,75 +1,122 @@
 import React, { Component } from "react";
-import { StyleSheet, Text, View, Image, ImageBackground } from "react-native";
+import {
+  StyleSheet,
+  Text,
+  View,
+  Image,
+  ImageBackground,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
 import { auth, db } from "@/firebaseConfig";
-import { doc, getDoc } from "firebase/firestore";
-// Import background image
-import image from "@/assets/images/profile-background.jpg";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import profileBg from "@/assets/images/profile-background.jpg";
+import profileImg from "@/assets/images/profile.jpeg";
+import translations from "@/constants/translations";
 
 export default class UserProfileView extends Component {
   constructor(props: {}) {
     super(props);
     this.state = {
-      userName: "",       // ← hold the fetched name
-      loading: true,      // ← you can use this to show a spinner if you want
+      userName: "",
+      loading: true,
+      issues: [],
+      language: "en",
     };
   }
 
   async componentDidMount() {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (userId) {
-        const userDocRef = doc(db, "users", userId);
-        const userSnap = await getDoc(userDocRef);
-
-        if (userSnap.exists()) {
-          const data = userSnap.data();
-          this.setState({
-            userName: data.name,  // ← adjust field name if it’s e.g. data.fullName
-            loading: false,
-          });
-        } else {
-          console.warn("No user document found!");
-          this.setState({ loading: false });
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching user data:", error);
-      this.setState({ loading: false });
-    }
+    await this.fetchUserData();
   }
 
+  fetchUserData = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) throw new Error("User not logged in");
+
+      const userSnap = await getDoc(doc(db, "users", userId));
+      const userName = userSnap.exists() ? userSnap.data().name || "Anonymous" : "Anonymous";
+
+      const issuesSnap = await getDocs(
+        query(collection(db, "issues"), where("user_id", "==", userId))
+      );
+      const issues = issuesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      this.setState({ userName, issues, loading: false });
+    } catch (error) {
+      console.error("Error fetching user data or issues:", error);
+      this.setState({ loading: false });
+    }
+  };
+
+  toggleLanguage = () => {
+    this.setState(prevState => ({
+      language: prevState.language === "en" ? "kn" : "en",
+    }));
+  };
+
+  renderIssue = ({ item }) => {
+    const { language } = this.state;
+    const t = translations[language] || translations["en"];
+
+    return (
+      <View style={styles.issueCard}>
+        <Text style={styles.issueText}>
+          📝 {language === "kn" ? item.kannada_description || t.noDescription : item.description || t.noDescription}
+        </Text>
+        <Text>{t.status}: {item.status || t.unknown}</Text>
+        <Text>{t.category}: {language === "kn" ? item.kannada_category || t.general : item.category || t.general}</Text>
+      </View>
+    );
+  };
+
   render() {
-    const { userName, loading } = this.state;
+    const { userName, loading, issues, language } = this.state;
+    const t = translations[language] || translations["en"];
 
     return (
       <View style={styles.container}>
-        <ImageBackground style={styles.header} source={image}>
+        <ImageBackground style={styles.header} source={profileBg}>
           <View style={styles.headerContent}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.name}>Welcome</Text>
-              {
-                loading
-                  ? <Text style={styles.userInfo}>Loading…</Text>
-                  : <Text style={styles.userInfo}>{userName || "Anonymous"}</Text>
-              }
+              <Text style={styles.name}>{t.welcome}</Text>
+              <Text style={styles.userInfo}>
+                {loading ? <ActivityIndicator color="#000" /> : userName}
+              </Text>
             </View>
-            <Image
-              style={styles.avatar}
-              source={require("@/assets/images/profile.jpeg")}
-            />
+            <Image style={styles.avatar} source={profileImg} />
           </View>
+
+          <TouchableOpacity style={styles.langToggle} onPress={this.toggleLanguage}>
+            <Text style={styles.langText}>
+              {language === "en" ? "ಕನ್ನಡ" : "English"}
+            </Text>
+          </TouchableOpacity>
         </ImageBackground>
+
+        <View style={styles.issueListContainer}>
+          <Text style={styles.issueHeader}>{t.yourIssues}</Text>
+          {loading ? (
+            <ActivityIndicator size="large" color="#888" />
+          ) : issues.length === 0 ? (
+            <Text style={styles.noIssues}>{t.noIssues}</Text>
+          ) : (
+            <FlatList
+              data={issues}
+              keyExtractor={item => item.id}
+              renderItem={this.renderIssue}
+            />
+          )}
+        </View>
       </View>
     );
   }
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
-    width: "auto",
     height: 300,
     justifyContent: "center",
     padding: 30,
@@ -85,17 +132,56 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     borderWidth: 2,
     borderColor: "white",
-    marginBottom: 10,
   },
   name: {
     fontSize: 22,
     color: "black",
     fontWeight: "600",
-    fontFamily: "Helvetica",
   },
   userInfo: {
     fontSize: 30,
     color: "black",
     fontWeight: "800",
+    marginTop: 5,
+  },
+  issueListContainer: {
+    padding: 20,
+    flex: 1,
+  },
+  issueHeader: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
+  issueCard: {
+    backgroundColor: "#f0f0f0",
+    padding: 15,
+    marginBottom: 10,
+    borderRadius: 10,
+  },
+  issueText: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  noIssues: {
+    fontStyle: "italic",
+    color: "#888",
+    textAlign: "center",
+    marginTop: 20,
+  },
+  langToggle: {
+    position: "absolute",
+    top: 30,
+    right: 30,
+    backgroundColor: "#facc15",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  langText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1e293b",
   },
 });

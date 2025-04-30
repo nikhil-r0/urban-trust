@@ -1,29 +1,46 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, ScrollView } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  Text,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+} from 'react-native';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
-import { useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import Base64ImageDisplay from '@/components/Base64ImageDisplay';
+import translations from '@/constants/translations';
 
 interface Item {
   id: string;
   title: string;
   description: string;
+  description_kannada?: string;
   latitude: number;
   longitude: number;
   status: string;
   category: string;
+  category_kannada?: string;
   image: string;
 }
 
 const HomePage = () => {
-  const navigation = useNavigation();
+  const [language, setLanguage] = useState<'en' | 'kn'>('en');
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const t = translations[language] || translations['en'];
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
   const fetchData = async () => {
+    setLoading(true);
     try {
       const querySnapshot = await getDocs(collection(db, 'issues'));
       const fetchedItems: Item[] = [];
@@ -33,11 +50,13 @@ const HomePage = () => {
           id: doc.id,
           title: data.title,
           description: data.description,
+          description_kannada: data.description_kannada || '',
           latitude: data.latitude,
           longitude: data.longitude,
           status: data.status,
-          category: data.text_category || 'Other',
-          image: data.image_embedding || '',
+          category: data.category || 'Other',
+          category_kannada: data.category_kannada || 'ಇತರೆ',
+          image: data.image || '',
         });
       });
       setItems(fetchedItems);
@@ -48,14 +67,16 @@ const HomePage = () => {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const toggleLanguage = () => {
+    setLanguage((prev) => (prev === 'en' ? 'kn' : 'en'));
+  };
 
   const renderItem = ({ item }: { item: Item }) => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.title}>{capitalizeFirstLetter(item.category)}</Text>
+        <Text style={styles.title}>
+          {language === 'kn' ? item.category_kannada : capitalizeFirstLetter(item.category)}
+        </Text>
         <Ionicons
           name={item.status === 'resolved' ? 'checkmark-circle' : 'close-circle'}
           size={24}
@@ -63,67 +84,96 @@ const HomePage = () => {
         />
       </View>
 
-      {item.image ? <Base64ImageDisplay base64={item.image} /> : null}
+      {item.image && <Base64ImageDisplay base64={item.image} />}
 
-      <Text style={styles.description}>{item.description}</Text>
+      <Text style={styles.description}>
+        {language === 'kn' ? item.description_kannada : item.description}
+      </Text>
+
       <View style={styles.location}>
-        <Text style={styles.locationText}>📍 Lat: {item.latitude.toFixed(4)}</Text>
-        <Text style={styles.locationText}>📍 Long: {item.longitude.toFixed(4)}</Text>
+        <Text style={styles.locationText}>📍 {t.latitude}: {item.latitude.toFixed(4)}</Text>
+        <Text style={styles.locationText}>📍 {t.longitude}: {item.longitude.toFixed(4)}</Text>
       </View>
     </View>
   );
-
-  if (loading) {
-    return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      {items.length === 0 ? (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>{t.welcomeTitle}</Text>
+        <Text style={styles.headerSubtitle}>{t.welcomeSubtitle}</Text>
+        <Pressable onPress={toggleLanguage} style={styles.languageToggle}>
+          <Ionicons name="language-outline" size={20} color="#2563eb" />
+          <Text style={styles.languageToggleText}>
+            {language === 'en' ? 'Switch to ಕನ್ನಡ' : 'Switch to English'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {loading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color="#3B82F6" />
+        </View>
+      ) : items.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="cloud-offline-outline" size={80} color="#94a3b8" />
-          <Text style={styles.emptyTitle}>No Data Found</Text>
-          <Text style={styles.emptySubtitle}>Please check back later.</Text>
+          <Text style={styles.emptyTitle}>{t.noDataTitle}</Text>
+          <Text style={styles.emptySubtitle}>{t.noDataSubtitle}</Text>
         </View>
       ) : (
-        <>
-          <FlashList
-            data={items}
-            renderItem={renderItem}
-            estimatedItemSize={250}
-            refreshing={loading}
-            onRefresh={fetchData}
-            contentContainerStyle={{ paddingBottom: 20 }}
-            ListHeaderComponent={
-              <View style={styles.welcomeBox}>
-                <Text style={styles.welcomeTitle}>Welcome to Urban Trust🏙️ Your City, Your Voice</Text>
-                <Text style={styles.welcomeSubtitle}>
-                  Urban Trust empowers citizens to report and track civic issues like potholes, garbage, or water leaks—all from one easy-to-use app. Using AI and blockchain, we ensure every report is categorized, mapped to the right BBMP ward, and logged transparently. View issues around you, monitor resolution progress, and help your community prioritize what matters most.
-                  Your report can drive real change—let’s build a smarter, cleaner, and more accountable city together.
-                </Text>
-              </View>
-            }
-          />
-        </>
+        <FlashList
+          data={items}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          estimatedItemSize={250}
+          refreshing={loading}
+          onRefresh={fetchData}
+          contentContainerStyle={{ paddingBottom: 20 }}
+          extraData={language}
+        />
       )}
-    </View>
+    </SafeAreaView>
   );
 };
+
+function capitalizeFirstLetter(string: string) {
+  return string.charAt(0).toUpperCase() + string.slice(1);
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 16,
     backgroundColor: '#f8fafc',
+    paddingHorizontal: 16,
   },
   loaderContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  header: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#334155',
+    marginTop: 4,
+  },
+  languageToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  languageToggleText: {
+    color: '#2563eb',
+    fontSize: 15,
+    marginLeft: 6,
   },
   card: {
     backgroundColor: '#ffffff',
@@ -143,23 +193,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     color: '#1e293b',
   },
   description: {
     fontSize: 16,
     color: '#334155',
-    marginBottom: 10,
+    marginTop: 8,
   },
   location: {
-    flexDirection: 'column',
     marginTop: 8,
   },
   locationText: {
     fontSize: 15,
     color: '#64748b',
-    marginBottom: 2,
   },
   emptyContainer: {
     flex: 1,
@@ -178,26 +226,6 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     marginTop: 6,
   },
-  welcomeBox: {
-    backgroundColor: '#e0f2fe',
-    padding: 16,
-    borderRadius: 12,
-    marginVertical: 12,
-  },
-  welcomeTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#0f172a',
-    marginBottom: 4,
-  },
-  welcomeSubtitle: {
-    fontSize: 15,
-    color: '#334155',
-  },
 });
-
-function capitalizeFirstLetter(string: string) {
-  return string.charAt(0).toUpperCase() + string.slice(1);
-}
 
 export default HomePage;

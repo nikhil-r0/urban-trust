@@ -7,6 +7,8 @@ import Slider from "@react-native-community/slider";
 import { Ionicons } from "@expo/vector-icons";  // For the "X" icon
 import * as Location from "expo-location";
 import * as FileSystem from 'expo-file-system'; // ADD THIS IMPORT
+import { ActivityIndicator } from "react-native";
+
 
 export default function CameraTab() {
   const [facing, setFacing] = useState<"back" | "front">("back");
@@ -18,6 +20,7 @@ export default function CameraTab() {
   const [description, setDescription] = useState('');
   const isFocused = useIsFocused();
   const [errorMsg,setErrorMsg] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const [longitude,setLongitude] = useState("");
   const [latitude,setLatitude] = useState("");
   const userId = auth.currentUser?.uid;
@@ -73,53 +76,55 @@ export default function CameraTab() {
   }, []);
 
 
-const handleSubmit = async () => {
-  if (!capturedPhotoUri || !latitude || !longitude || !description) {
-    console.log("Missing fields!");
-    return;
-  }
-
-  try {
-    // Convert image to base64
-    const base64Image = await FileSystem.readAsStringAsync(capturedPhotoUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    const payload = {
-      user_id: userId,
-      latitude,
-      longitude,
-      category: "general", // you can later change this if you add category selection
-      description,
-      image: base64Image,
-    };
-
-    const response = await fetch('http://192.168.10.199:5001/report-issue', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await response.json();
-    console.log('Server response:', result);
-
-    if (result.success) {
-      alert('Issue reported successfully!');
-      // Optionally reset screen
-      setCapturedPhotoUri(null);
-      setShowCamera(true);
-      setDescription('');
-    } else {
-      alert(result.message);
+  const handleSubmit = async () => {
+    if (!capturedPhotoUri || !latitude || !longitude || !description) {
+      console.log("Missing fields!");
+      return;
     }
-
-  } catch (error) {
-    console.error("Error submitting issue:", error);
-    alert('An error occurred. Please try again.');
-  }
-};
+  
+    try {
+      setIsLoading(true); // ⬅️ Add this to show loading
+  
+      const base64Image = await FileSystem.readAsStringAsync(capturedPhotoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+  
+      const payload = {
+        user_id: userId,
+        latitude,
+        longitude,
+        category: "general",
+        description,
+        image: base64Image,
+      };
+  
+      const response = await fetch('http://192.168.10.199:5001/report-issue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+  
+      const result = await response.json();
+      console.log('Server response:', result);
+  
+      if (result.success) {
+        alert('Issue reported successfully!');
+        setCapturedPhotoUri(null);
+        setShowCamera(true);
+        setDescription('');
+      } else {
+        alert(result.message);
+      }
+  
+    } catch (error) {
+      console.error("Error submitting issue:", error);
+      alert('An error occurred. Please try again.');
+    } finally {
+      setIsLoading(false); // ⬅️ Hide loading once done
+    }
+  };  
 
 
   // Function to close the photo
@@ -145,7 +150,15 @@ const handleSubmit = async () => {
       </View>
     );
   }
-
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007bff" />
+        <Text style={styles.loadingText}>Submitting your report...</Text>
+      </View>
+    );
+  }
+  
   return (
     <View style={styles.container}>
       {/* Show Camera or Preview based on the showCamera state */}
@@ -306,4 +319,17 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 20,
   },  
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
+  },
+  loadingText: {
+    marginTop: 20,
+    fontSize: 18,
+    color: '#555',
+    fontWeight: '600',
+  },
+  
 });
