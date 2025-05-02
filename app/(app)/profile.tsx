@@ -8,6 +8,7 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
+  ScrollView
 } from "react-native";
 import { auth, db } from "@/firebaseConfig";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -74,9 +75,9 @@ export default class UserProfileView extends Component {
   render() {
     const { userName, loading, issues, language } = this.state;
     const t = translations[language] || translations["en"];
-
-    return (
-      <View style={styles.container}>
+  
+    const ListHeaderComponent = (
+      <>
         <ImageBackground style={styles.header} source={profileBg}>
           <View style={styles.headerContent}>
             <View style={{ flex: 1 }}>
@@ -87,32 +88,34 @@ export default class UserProfileView extends Component {
             </View>
             <Image style={styles.avatar} source={profileImg} />
           </View>
-
           <TouchableOpacity style={styles.langToggle} onPress={this.toggleLanguage}>
             <Text style={styles.langText}>
               {language === "en" ? "ಕನ್ನಡ" : "English"}
             </Text>
           </TouchableOpacity>
         </ImageBackground>
-
+  
         <View style={styles.issueListContainer}>
           <Text style={styles.issueHeader}>{t.yourIssues}</Text>
-          {loading ? (
-            <ActivityIndicator size="large" color="#888" />
-          ) : issues.length === 0 ? (
+          {loading && <ActivityIndicator size="large" color="#888" />}
+          {!loading && issues.length === 0 && (
             <Text style={styles.noIssues}>{t.noIssues}</Text>
-          ) : (
-            <FlatList
-              data={issues}
-              keyExtractor={item => item.id}
-              renderItem={this.renderIssue}
-            />
           )}
         </View>
-      </View>
+      </>
+    );
+  
+    return (
+      <FlatList
+        data={loading ? [] : issues}
+        keyExtractor={item => item.id}
+        renderItem={this.renderIssue}
+        ListHeaderComponent={ListHeaderComponent}
+        contentContainerStyle={{ paddingBottom: 30 }}
+      />
     );
   }
-}
+} 
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

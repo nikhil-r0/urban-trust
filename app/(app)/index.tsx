@@ -6,7 +6,6 @@ import {
   Text,
   Pressable,
   SafeAreaView,
-  ScrollView,
 } from 'react-native';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
@@ -71,17 +70,28 @@ const HomePage = () => {
     setLanguage((prev) => (prev === 'en' ? 'kn' : 'en'));
   };
 
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'open':
+        return <Ionicons name="alert-circle-outline" size={24} color="#f59e0b" />; // amber
+      case 'under_progress':
+        return <Ionicons name="time-outline" size={24} color="#3b82f6" />; // blue
+      case 'completed':
+        return <Ionicons name="checkmark-circle-outline" size={24} color="#22c55e" />; // green
+      case 'not_working':
+        return <Ionicons name="close-circle-outline" size={24} color="#ef4444" />; // red
+      default:
+        return <Ionicons name="help-circle-outline" size={24} color="#9ca3af" />; // gray
+    }
+  };  
+
   const renderItem = ({ item }: { item: Item }) => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.title}>
           {language === 'kn' ? item.category_kannada : capitalizeFirstLetter(item.category)}
         </Text>
-        <Ionicons
-          name={item.status === 'resolved' ? 'checkmark-circle' : 'close-circle'}
-          size={24}
-          color={item.status === 'resolved' ? '#22c55e' : '#ef4444'}
-        />
+        {getStatusIcon(item.status)}
       </View>
 
       {item.image && <Base64ImageDisplay base64={item.image} />}

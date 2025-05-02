@@ -1,335 +1,264 @@
 import React, { useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, TextInput, Button } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  TextInput,
+  Button,
+  ActivityIndicator,
+} from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useIsFocused } from "@react-navigation/native";
 import { auth } from "@/firebaseConfig";
 import Slider from "@react-native-community/slider";
-import { Ionicons } from "@expo/vector-icons";  // For the "X" icon
+import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import * as FileSystem from 'expo-file-system'; // ADD THIS IMPORT
-import { ActivityIndicator } from "react-native";
+import * as FileSystem from "expo-file-system";
+import RNPickerSelect from "react-native-picker-select";
 
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.29.225:5001";
 
 export default function CameraTab() {
-  const [facing, setFacing] = useState<"back" | "front">("back");
+  const [facing, setFacing] = useState("back");
   const [zoom, setZoom] = useState(0);
-  const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
-  const [showCamera, setShowCamera] = useState(true); // State to toggle between camera and preview
+  const [photoUri, setPhotoUri] = useState(null);
+  const [showCamera, setShowCamera] = useState(true);
   const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
-  const [description, setDescription] = useState('');
-  const isFocused = useIsFocused();
-  const [errorMsg,setErrorMsg] = useState("");
+  const cameraRef = useRef(null);
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState(null);
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [longitude,setLongitude] = useState("");
-  const [latitude,setLatitude] = useState("");
+  const isFocused = useIsFocused();
   const userId = auth.currentUser?.uid;
 
-  const getUserLocation =async () => {
-      let {status} =await Location.requestForegroundPermissionsAsync();
-
-      if(status !=="granted"){
-          setErrorMsg("Permission to Location was not granted");
-          return;
-      }
-
-      let {coords}=await Location.getCurrentPositionAsync();
-
-      if(coords){
-          const {latitude, longitude} = coords;
-          console.log("lat and long is",latitude, longitude);
-          setLatitude(latitude);
-          setLongitude(longitude);
-          let response =await Location.reverseGeocodeAsync({
-              latitude,
-              longitude
-          })
-
-          console.log('USER LOCATION IS',response);
-      }
+  const toggleCamera = () => {
+    setFacing((prev) => (prev === "back" ? "front" : "back"));
   };
 
-  // Function to toggle between front and back camera
-  const toggleCameraFacing = useCallback(() => {
-    setFacing((current) => (current === "back" ? "front" : "back"));
-  }, []);
+  const handleZoomChange = (value: React.SetStateAction<number>) => setZoom(value);
 
-  // Function to handle zoom change
-  const handleZoomChange = useCallback((value: number) => {
-    setZoom(value);
-  }, []);
-
-  // Function to take a picture
-  const takePicture = useCallback(async () => {
-    if (cameraRef.current) {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 1,
-        base64: false,
-        exif: false,
-      });
-      if (photo) {
-        setCapturedPhotoUri(photo.uri);
-        setShowCamera(false);
-        await getUserLocation();  // Hide camera after capturing the photo
-      }
-    }
-  }, []);
-
-
-  const handleSubmit = async () => {
-    if (!capturedPhotoUri || !latitude || !longitude || !description) {
-      console.log("Missing fields!");
+  const getLocation = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      alert("Location permission denied");
       return;
     }
-  
+    const { coords } = await Location.getCurrentPositionAsync();
+    if (coords) {
+      setLatitude(coords.latitude);
+      setLongitude(coords.longitude);
+    }
+  };
+
+  const takePicture = async () => {
+    if (!cameraRef.current) return;
     try {
-      setIsLoading(true); // ⬅️ Add this to show loading
-  
-      const base64Image = await FileSystem.readAsStringAsync(capturedPhotoUri, {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 1 });
+      if (photo.uri) {
+        setPhotoUri(photo.uri);
+        setShowCamera(false);
+        await analyzePhoto(photo.uri);
+        await getLocation();
+      }
+    } catch (e) {
+      console.error("Error taking picture:", e);
+      alert("Could not capture photo. Try again.");
+    }
+  };
+
+  const analyzePhoto = async (uri: string) => {
+    if (!uri) return;
+    setIsLoading(true);
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-  
-      const payload = {
-        user_id: userId,
-        latitude,
-        longitude,
-        category: "general",
-        description,
-        image: base64Image,
-      };
-  
-      const response = await fetch('http://192.168.10.199:5001/report-issue', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
+      const res = await fetch(`${BASE_URL}/describe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64 }),
       });
-  
-      const result = await response.json();
-      console.log('Server response:', result);
-  
-      if (result.success) {
-        alert('Issue reported successfully!');
-        setCapturedPhotoUri(null);
-        setShowCamera(true);
-        setDescription('');
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      if (data.isIssue) {
+        setCategory(data.category);
+        setDescription(data.description);
+        alert("Issue detected!");
       } else {
-        alert(result.message);
+        alert("No issue detected.");
+        resetCamera();
       }
-  
-    } catch (error) {
-      console.error("Error submitting issue:", error);
-      alert('An error occurred. Please try again.');
+    } catch (e) {
+      console.error(e);
+      alert("Analysis failed. Please try again.");
+      resetCamera();
     } finally {
-      setIsLoading(false); // ⬅️ Hide loading once done
+      setIsLoading(false);
     }
-  };  
+  };
 
+  const submitReport = async () => {
+    if (!photoUri || latitude == null || longitude == null || !description) {
+      alert("Please capture, analyze, and fill all fields.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const base64 = await FileSystem.readAsStringAsync(photoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const res = await fetch(`${BASE_URL}/report-issue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          latitude,
+          longitude,
+          category: category || "general",
+          description,
+          image: base64,
+        }),
+      });
+      if (!res.ok) throw new Error(res.statusText);
+      const result = await res.json();
+      if (result.success) {
+        alert("Report submitted successfully!");
+        resetCamera();
+      } else {
+        alert(result.message || "Submission failed.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Submission error. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  // Function to close the photo
-  const closePreview = useCallback(() => {
-    setCapturedPhotoUri(null);
-    setShowCamera(true);  // Show the camera again
-  }, []);
+  const resetCamera = () => {
+    setPhotoUri(null);
+    setDescription("");
+    setCategory(null);
+    setShowCamera(true);
+  };
 
-  // If permission is not granted, request permission
-  if (!permission) {
-    return <View />;
-  }
-
-  if (!permission.granted) {
+  if (!permission) return <View />;
+  if (!permission.granted)
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>
-          We need your permission to show the camera
-        </Text>
-        <TouchableOpacity onPress={requestPermission} style={styles.button}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </TouchableOpacity>
+        <Text>Camera permission is required.</Text>
+        <Button title="Grant" onPress={requestPermission} />
       </View>
     );
-  }
-  if (isLoading) {
+  if (isLoading)
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007bff" />
-        <Text style={styles.loadingText}>Submitting your report...</Text>
+        <ActivityIndicator size="large" />
+        <Text>Processing...</Text>
       </View>
     );
-  }
-  
+
   return (
     <View style={styles.container}>
-      {/* Show Camera or Preview based on the showCamera state */}
       {showCamera && isFocused ? (
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          facing={facing}
-          zoom={zoom}
-        >
-          <View style={styles.controlsContainer}>
-            <View style={styles.row}>
-              <TouchableOpacity style={styles.captureButton} onPress={toggleCameraFacing}>
-                <Text style={styles.captureButtonText}>Flip</Text>
-              </TouchableOpacity>
-  
-              <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
-                <Text style={styles.captureButtonText}>Capture</Text>
-              </TouchableOpacity>
-            </View>
-  
-            <View style={styles.row}>
-              <Text style={styles.text}>Zoom: {zoom.toFixed(1)}x</Text>
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={50}
-                value={zoom}
-                onValueChange={handleZoomChange}
-              />
-            </View>
+        <CameraView ref={cameraRef} style={styles.camera} facing={facing} zoom={zoom}>
+          <View style={styles.controls}>
+            <TouchableOpacity onPress={toggleCamera} style={styles.button}>
+              <Text>Flip</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={takePicture} style={styles.button}>
+              <Text>Capture</Text>
+            </TouchableOpacity>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={1}
+              value={zoom}
+              onValueChange={handleZoomChange}
+            />
           </View>
         </CameraView>
       ) : (
-        // Display the captured photo with an option to retake
-        <ScrollView>
-          <View style={styles.previewContainer}>
-          <Text style={styles.title}> Report Issue</Text>
-            <Image source={{ uri: capturedPhotoUri}} style={styles.previewImage} />
-            <Text style={styles.text}>This is your photo!</Text>
-            {/* Close (X) button to retake the photo */}
-            <TouchableOpacity onPress={closePreview} style={styles.closeButton}>
-              <Ionicons name="close" size={30} color="#000" />
-            </TouchableOpacity>
-            <View style={styles.row}>
-              <TouchableOpacity style={styles.button} onPress={takePicture}>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.container}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Description"
-                    value={description}
-                    onChangeText={setDescription}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                  <Button 
-                    title="Submit" 
-                    onPress={handleSubmit}
-                  />
-                  </View>
-          </View>
+        <ScrollView contentContainerStyle={styles.previewContainer}>
+          <Image
+            source={{ uri: photoUri }}
+            style={styles.image}
+            accessibilityLabel="Captured photo"
+          />
+          <TouchableOpacity onPress={resetCamera} style={styles.close}>
+            <Ionicons name="close" size={30} />
+          </TouchableOpacity>
+          <RNPickerSelect
+            onValueChange={setCategory}
+            value={category}
+            placeholder={{ label: "Select category...", value: null }}
+            items={[
+              { label: "Pothole", value: "pothole" },
+              { label: "Garbage", value: "garbage" },
+              { label: "Streetlight", value: "streetlight" },
+            ]}
+            style={pickerStyles}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Description"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+          />
+          <Button title="Submit" onPress={submitReport} />
         </ScrollView>
       )}
     </View>
   );
-  
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 18,
-    textAlign: 'center',
-    color: 'gray',
-    marginBottom: 20,
-  },
-  input: {
-    height: 50,
-    borderColor: 'gray',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    marginBottom: 10,
-    backgroundColor: 'white',
-  },
-  toggleText: {
-    marginTop: 15,
-    fontSize: 16,
-    color: 'blue',
-    textAlign: 'center',
-  },
-  camera: {
-    flex: 1,
-  },
-  controlsContainer: {
+  container: { flex: 1, justifyContent: "center" },
+  camera: { flex: 1 },
+  controls: {
     position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  row: {
+    bottom: 20,
+    left: 20,
+    right: 20,
     flexDirection: "row",
-    justifyContent: "space-around",
     alignItems: "center",
-    marginBottom: 20,
+    justifyContent: "space-between",
   },
-  text: {
-    color: "#000",
-    fontSize: 16,
-  },
-  slider: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  captureButton: {
+  button: {
     backgroundColor: "#fff",
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 30,
+    padding: 10,
+    borderRadius: 8,
   },
-  captureButtonText: {
-    color: "#000",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  previewContainer: {
+  slider: { flex: 1, marginHorizontal: 10 },
+  loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+  },
+  previewContainer: {
+    flexGrow: 1,
+    alignItems: "center",
     padding: 20,
-    borderRadius: 10,
   },
-  previewImage: {
-    width: 200,
-    height: 200,
-    marginBottom: 20,
-  },
-  closeButton: {
-    position: "absolute",
-    top: 20,
-    right: 20,
-    backgroundColor: "#fff",
+  image: { width: 250, height: 250, borderRadius: 8 },
+  close: { position: "absolute", top: 20, right: 20 },
+  input: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "gray",
+    borderRadius: 8,
     padding: 10,
-    borderRadius: 20,
-  },  
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f9f9f9',
+    marginVertical: 10,
   },
-  loadingText: {
-    marginTop: 20,
-    fontSize: 18,
-    color: '#555',
-    fontWeight: '600',
-  },
-  
+});
+
+const pickerStyles = StyleSheet.create({
+  inputIOS: { fontSize: 16, padding: 12, borderWidth: 1, borderColor: "gray", borderRadius: 8, marginVertical: 10 },
+  inputAndroid: { fontSize: 16, padding: 8, borderWidth: 1, borderColor: "gray", borderRadius: 8, marginVertical: 10 },
 });

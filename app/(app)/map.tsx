@@ -82,7 +82,7 @@ export default function MapScreen() {
               contentContainerStyle={{ flex: 1 }}
             >
               <WebView
-                source={{ uri: `http://192.168.10.199:5001/map/${selectedCategory}` }}
+                source={{ uri: `http://192.168.29.225:5000/map/${selectedCategory}` }}
                 style={{ flex: 1 }}
                 onLoadEnd={() => {
                   setLoading(false);
